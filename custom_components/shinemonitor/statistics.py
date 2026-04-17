@@ -61,7 +61,14 @@ def _num(v: Any) -> float | None:
 async def _historical_daily_kwh(
     client: ShineClient, plantid: int, months_back: int
 ) -> list[tuple[datetime, float]]:
-    """Fetch daily kWh for the last ``months_back`` months (including current)."""
+    """Fetch daily kWh for the last ``months_back`` months (including current).
+
+    The API returns all days of the month, including future-dated filler
+    rows with val=0. We keep them in the stream — their zero increments
+    don't shift the cumulative sum, so they're harmless, and this avoids
+    a timezone-sensitive filter that used to drop the plant's "today" row
+    for plants east of UTC.
+    """
     today = datetime.now(timezone.utc).date()
     out: list[tuple[datetime, float]] = []
     year, month = today.year, today.month
@@ -77,8 +84,6 @@ async def _historical_daily_kwh(
             val = _num(r.get("val"))
             if ts is None or val is None:
                 continue
-            if ts.date() > today:
-                continue  # future-dated zero filler rows
             out.append((ts, val))
         month -= 1
         if month == 0:

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2 — 2026-04-18
+
+### Bug fixes
+
+- Monthly energy bar chart now includes today's in-progress bar. The
+  daily-history backfill was filtering out the plant's "today" row for
+  accounts east of UTC (e.g. IST, +05:30) because it compared the API's
+  local timestamp against `datetime.utcnow().date()` — so `2026-04-18
+  00:00 IST` looked "later than today UTC" and got dropped. Filter
+  removed; future-dated filler rows are kept in the stream but add zero
+  to the cumulative sum so they don't distort the chart.
+
 ## 0.2.1 — 2026-04-18
 
 ### Bug fixes
