@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.DS_Store
+ha-config/
+.claude/
+docs/ha-dashboard*.png
+docs/ha-entities.png
+docs/ha-integration-page.png
+docs/ha-plant-device.png
+docs/ha-energy-dashboard.png

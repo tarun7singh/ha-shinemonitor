@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ShineMonitor account",
+        "description": "Sign in with the username and password you use at shinemonitor.com.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "plant": {
+        "title": "Choose a plant",
+        "description": "Your account has access to more than one plant. Pick the one to add.",
+        "data": {
+          "plantid": "Plant"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate ShineMonitor",
+        "description": "Your ShineMonitor session has expired. Please re-enter your password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password.",
+      "cannot_connect": "Failed to reach ShineMonitor. Check your network and try again.",
+      "no_plants": "Your account has no plants. Add one at shinemonitor.com first.",
+      "unknown": "Unexpected error. See Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "This plant is already added to Home Assistant.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ShineMonitor options",
+        "description": "Change how often Home Assistant polls the ShineMonitor cloud. Polling faster than the datalogger's upload interval will not produce fresher data.",
+        "data": {
+          "scan_interval": "Poll interval (seconds)"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "domain": "shinemonitor",
+  "name": "ShineMonitor Solar",
+  "after_dependencies": ["recorder"],
+  "codeowners": ["@Tarun7singh"],
+  "config_flow": true,
+  "documentation": "https://github.com/Tarun7singh/ha-shinemonitor",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Tarun7singh/ha-shinemonitor/issues",
+  "requirements": [],
+  "version": "0.2.0"
+}

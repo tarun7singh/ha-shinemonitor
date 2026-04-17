@@ -1,0 +1,80 @@
+# Sample Lovelace dashboard for ShineMonitor Solar.
+#
+# Paste into Settings → Dashboards → "+ Add card" → (⋮) → Manual → YAML.
+# Replace ``home`` in entity / statistic_id prefixes with your plant's slug
+# if the plant is not named "Home".
+#
+# - Real-time power        → sensor.home_current_power  (kW)
+# - Monthly energy         → shinemonitor:home_energy external stat, period=day
+# - Yearly energy          → shinemonitor:home_energy external stat, period=month
+# - Live tile              → sensor.home_current_power gauge + attributes
+
+type: vertical-stack
+cards:
+  # Big number + last-reported attribute, always visible
+  - type: entities
+    title: Plant now
+    entities:
+      - entity: sensor.home_current_power
+        name: Current power
+      - type: attribute
+        entity: sensor.home_current_power
+        attribute: last_nonzero_ts
+        name: Last producing at
+      - type: attribute
+        entity: sensor.home_current_power
+        attribute: last_nonzero_value
+        name: Last producing (kW)
+        suffix: " kW"
+      - entity: sensor.home_today
+        name: Today's energy
+      - entity: sensor.home_month
+        name: This month
+      - entity: sensor.home_year
+        name: This year
+      - entity: sensor.home_lifetime
+        name: Lifetime energy
+      - entity: binary_sensor.home_producing
+        name: Producing now
+      - entity: binary_sensor.ksy0724hs08486_online
+        name: Data link
+
+  - type: gauge
+    name: Current output
+    entity: sensor.home_current_power
+    min: 0
+    max: 5000        # nominal plant capacity (W) — adjust for your install
+    severity:
+      green: 1000
+      yellow: 300
+      red: 0
+
+  - type: statistics-graph
+    title: Real-time power (today)
+    chart_type: line
+    period: 5minute
+    stat_types:
+      - mean
+    days_to_show: 1
+    entities:
+      - sensor.home_current_power
+
+  - type: statistics-graph
+    title: Monthly energy (last 31 days)
+    chart_type: bar
+    period: day
+    stat_types:
+      - change
+    days_to_show: 31
+    entities:
+      - statistic: shinemonitor:home_energy
+
+  - type: statistics-graph
+    title: Yearly energy (last 12 months)
+    chart_type: bar
+    period: month
+    stat_types:
+      - change
+    days_to_show: 365
+    entities:
+      - statistic: shinemonitor:home_energy
