@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 — 2026-04-18
+
+### Bug fixes
+
+- `sensor.<plant>_current_power` now reports `0` (not `unknown`) when the
+  coordinator has successfully refreshed but the cloud has no samples yet
+  for today. This lets the gauge card render and the history chart plot a
+  continuous line through pre-dawn instead of showing "Entity is
+  non-numeric".
+
 ## 0.2.0 — 2026-04-17
 
 Initial public release.

@@ -325,20 +325,22 @@ class ShinePlantCurrentPowerSensor(ShineEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         data = self.coordinator.data
-        if data is None or not data.power_curve:
+        # "Unknown" (None) is reserved for the brief window before the
+        # coordinator has made any successful refresh. Any successful refresh
+        # — even one where the cloud returned no samples for today — is
+        # reported as 0 W so the gauge/history cards render something
+        # numeric instead of erroring with "non-numeric".
+        if data is None:
             return None
-        # Walk back from the newest sample to find the most recent *fresh*
-        # non-zero reading. Avoids reporting 0 W all night (which would make
-        # the dashboard card look broken) while still reporting 0 at
-        # twilight if the inverter has genuinely fallen to zero output.
+        if not data.power_curve:
+            return 0
+        # Walk back from the newest sample to find the most recent
+        # non-zero reading. Values are in kW; convert to W.
         for sample in reversed(data.power_curve):
             v = _coerce_number(sample.get("val"))
             if isinstance(v, (int, float)) and v > 0:
-                return round(float(v) * 1000)  # kW → W
-        # No non-zero sample today — fall back to the final sample so the
-        # graph at least has a line at 0 rather than going "unknown".
-        last = _coerce_number(data.power_curve[-1].get("val"))
-        return round(float(last) * 1000) if isinstance(last, (int, float)) else None
+                return round(float(v) * 1000)
+        return 0
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
