@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -107,6 +107,23 @@ class ShineCoordinator(DataUpdateCoordinator[ShineData]):
 
         self._static_loaded = True
 
+    def _plant_local_date(self) -> str:
+        """Today's date in the plant's timezone (collector ``timezone`` field, seconds east of UTC).
+
+        The API's date-keyed endpoints (realtime last-data, power curve,
+        month-per-day) are relative to the *plant's* clock, not the HA host's.
+        For plants east of UTC (e.g. IST, +05:30) using ``date.today()`` picks
+        the wrong day during the hours the host is still on the previous date.
+        """
+        collectors = self.data.collectors if self.data else []
+        for coll in collectors:
+            try:
+                offset = int(coll.get("timezone") or 0)
+            except (TypeError, ValueError):
+                continue
+            return datetime.now(timezone(timedelta(seconds=offset))).date().isoformat()
+        return date.today().isoformat()
+
     async def _async_update_data(self) -> ShineData:
         data = ShineData()
         try:
@@ -122,10 +139,13 @@ class ShineCoordinator(DataUpdateCoordinator[ShineData]):
                 data.collectors = last.collectors if last else []
                 data.fields = last.fields if last else {}
 
-            today = date.today().isoformat()
+            today = self._plant_local_date()
             realtime_tasks: dict[str, Any] = {}
             for dev in data.devices:
-                if dev.com_status == 1 and dev.status == 1:
+                # ``comStatus`` is the "cloud is receiving fresh data" flag;
+                # ``status`` is the *alarm* flag (0=normal, 1=alarm) and must
+                # not gate realtime — see docs/shinemonitor-api.md §5.4.
+                if dev.com_status == 1:
                     realtime_tasks[dev.sn] = self.client.query_device_real_last_data(
                         pn=dev.collector_pn,
                         devcode=dev.devcode,
@@ -148,7 +168,7 @@ class ShineCoordinator(DataUpdateCoordinator[ShineData]):
             )
             data.energy = {row["sn"]: row for row in energy_rows if row.get("sn")}
 
-            today_iso = date.today().isoformat()
+            today_iso = today
             try:
                 data.power_curve = await self.client.query_plant_active_output_power_one_day(
                     self.plantid, today_iso

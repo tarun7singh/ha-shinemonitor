@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.3 — 2026-08-18
+
+### Bug fixes
+
+- Realtime device sensors (PV/grid voltages, currents, output power,
+  temperatures, device-level `energy_today`/`energy_total`, …) were stuck on
+  `unknown` for healthy inverters. The realtime fetch was gated on
+  `device.status == 1`, but `status` is the **alarm** flag (`0` = normal,
+  `1` = alarm) per `docs/shinemonitor-api.md` §5.4 — so a producing inverter
+  with `status=0` never had its realtime data fetched. The gate now only
+  checks `comStatus` (the actual "cloud is receiving fresh data" signal).
+- Date-keyed API calls (realtime last-data, power curve, month-per-day) now
+  use the plant's local date from the collector metadata (`timezone`, seconds
+  east of UTC) instead of the HA host's date, so plants east of the host
+  (e.g. IST) query the correct day/month around midnight.
+- Statistics backfill no longer imports the API's future-dated filler rows
+  (val=0), which rendered as a phantom zero "tomorrow" bar in the monthly
+  chart. The plant's in-progress "today" row is still kept, and day/month
+  selection uses the plant's local clock so IST plants keep today's bar.
+
 ## 0.2.2 — 2026-04-18
 
 ### Bug fixes

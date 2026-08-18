@@ -13,12 +13,19 @@ Granularity strategy (coarsest first — later writes override):
 
 All points are cumulative sums in kWh — HA's ``change`` statistic type derives
 the per-period delta from consecutive cumulative values.
+
+Timezones: the API returns wall-clock timestamps in the *plant's* local time
+(``collector.timezone``, seconds east of UTC). Each row is labeled with the
+plant's local midnight; we import it at the matching UTC hour (00:00) so the
+bucket stays aligned to the plant's calendar day and re-imports overwrite the
+existing points in place. The plant's local clock is used only to decide
+which days/months exist (i.e. to drop future-dated filler rows).
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.components.recorder.models import (
@@ -38,12 +45,32 @@ from .coordinator import ShineCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 
+def _plant_timezone(coordinator: ShineCoordinator) -> timezone | None:
+    """Plant-local timezone from collector metadata (``timezone`` = seconds east of UTC).
+
+    The API reports timestamps in the plant's local wall clock (e.g. +05:30
+    for India). Fall back to UTC if the static metadata is unavailable.
+    """
+    collectors = coordinator.data.collectors if coordinator.data else []
+    for coll in collectors:
+        try:
+            offset = int(coll.get("timezone") or 0)
+        except (TypeError, ValueError):
+            continue
+        return timezone(timedelta(seconds=offset))
+    return None
+
+
+def _plant_now(plant_tz: timezone | None) -> datetime:
+    return datetime.now(plant_tz if plant_tz is not None else timezone.utc)
+
+
 def _ts(raw: str) -> datetime | None:
     try:
-        # API timestamps are in the plant's local timezone. Home Assistant
-        # statistics use UTC-aligned hour boundaries — we treat them as UTC
-        # directly rather than trying to convert, since the graphs are aligned
-        # to the plant's "day" concept anyway.
+        # The API's timestamps are the plant's local wall clock, but we keep
+        # the label as-is at 00:00 UTC: each day's bucket then stays on the
+        # plant's calendar day, and re-imports overwrite existing points
+        # instead of creating duplicates at shifted timestamps.
         return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
     except (TypeError, ValueError):
         return None
@@ -59,17 +86,22 @@ def _num(v: Any) -> float | None:
 
 
 async def _historical_daily_kwh(
-    client: ShineClient, plantid: int, months_back: int
+    client: ShineClient,
+    plantid: int,
+    months_back: int,
+    plant_tz: timezone | None,
 ) -> list[tuple[datetime, float]]:
     """Fetch daily kWh for the last ``months_back`` months (including current).
 
     The API returns all days of the month, including future-dated filler
-    rows with val=0. We keep them in the stream — their zero increments
-    don't shift the cumulative sum, so they're harmless, and this avoids
-    a timezone-sensitive filter that used to drop the plant's "today" row
-    for plants east of UTC.
+    rows with val=0. Rows dated after the plant's local "today" are dropped —
+    otherwise they'd render as phantom zero bars on the charts. The plant's
+    in-progress "today" row is kept. "Today" (and the month selection) are
+    evaluated in the plant's timezone, not UTC, so IST plants don't lose
+    their current day or query the wrong month around midnight.
     """
-    today = datetime.now(timezone.utc).date()
+    now = _plant_now(plant_tz)
+    today = now.date()
     out: list[tuple[datetime, float]] = []
     year, month = today.year, today.month
     for _ in range(months_back):
@@ -80,7 +112,14 @@ async def _historical_daily_kwh(
             _LOGGER.debug("month_per_day(%s) failed: %s", stamp, err)
             rows = []
         for r in rows:
-            ts = _ts(r.get("ts", ""))
+            raw = str(r.get("ts", ""))
+            try:
+                row_day = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").date()
+            except (TypeError, ValueError):
+                continue
+            if row_day > today:
+                continue
+            ts = _ts(raw)
             val = _num(r.get("val"))
             if ts is None or val is None:
                 continue
@@ -92,30 +131,41 @@ async def _historical_daily_kwh(
 
 
 async def _historical_monthly_kwh(
-    client: ShineClient, plantid: int, years_back: int
+    client: ShineClient,
+    plantid: int,
+    years_back: int,
+    plant_tz: timezone | None,
 ) -> list[tuple[datetime, float]]:
-    today = datetime.now(timezone.utc).date()
+    now = _plant_now(plant_tz)
     out: list[tuple[datetime, float]] = []
-    for year in range(today.year, today.year - years_back, -1):
+    for year in range(now.year, now.year - years_back, -1):
         try:
             rows = await client.query_plant_energy_year_per_month(plantid, str(year))
         except (ShineApiError, ShineConnectionError) as err:
             _LOGGER.debug("year_per_month(%s) failed: %s", year, err)
             rows = []
         for r in rows:
-            ts = _ts(r.get("ts", ""))
+            raw = str(r.get("ts", ""))
+            try:
+                row_month = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").date()
+            except (TypeError, ValueError):
+                continue
+            if (row_month.year, row_month.month) > (now.year, now.month):
+                continue
+            ts = _ts(raw)
             val = _num(r.get("val"))
             if ts is None or val is None:
-                continue
-            if ts.year > today.year or (ts.year == today.year and ts.month > today.month):
                 continue
             out.append((ts, val))
     return out
 
 
 async def _historical_yearly_kwh(
-    client: ShineClient, plantid: int
+    client: ShineClient,
+    plantid: int,
+    plant_tz: timezone | None,
 ) -> list[tuple[datetime, float]]:
+    now = _plant_now(plant_tz)
     try:
         rows = await client.query_plant_energy_total_per_year(plantid)
     except (ShineApiError, ShineConnectionError) as err:
@@ -123,7 +173,14 @@ async def _historical_yearly_kwh(
         return []
     out: list[tuple[datetime, float]] = []
     for r in rows:
-        ts = _ts(r.get("ts", ""))
+        raw = str(r.get("ts", ""))
+        try:
+            row_year = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").date()
+        except (TypeError, ValueError):
+            continue
+        if row_year.year > now.year:
+            continue
+        ts = _ts(raw)
         val = _num(r.get("val"))
         if ts is None or val is None:
             continue
@@ -150,16 +207,17 @@ async def async_backfill_lifetime_statistics(
         return
     plant_name = coordinator.data.plant_info.get("name") or f"plant_{coordinator.plantid}"
     stat_id = statistic_id(plant_name)
+    plant_tz = _plant_timezone(coordinator)
 
     # Build combined daily->monthly->yearly series, finest granularity wins.
     # Each tuple is (period_start, kwh_in_period).
     series_by_start: dict[datetime, float] = {}
 
-    for ts, val in await _historical_yearly_kwh(coordinator.client, coordinator.plantid):
+    for ts, val in await _historical_yearly_kwh(coordinator.client, coordinator.plantid, plant_tz):
         series_by_start[ts] = val
-    for ts, val in await _historical_monthly_kwh(coordinator.client, coordinator.plantid, years_back=5):
+    for ts, val in await _historical_monthly_kwh(coordinator.client, coordinator.plantid, years_back=5, plant_tz=plant_tz):
         series_by_start[ts] = val
-    for ts, val in await _historical_daily_kwh(coordinator.client, coordinator.plantid, months_back=12):
+    for ts, val in await _historical_daily_kwh(coordinator.client, coordinator.plantid, months_back=12, plant_tz=plant_tz):
         series_by_start[ts] = val
 
     if not series_by_start:
