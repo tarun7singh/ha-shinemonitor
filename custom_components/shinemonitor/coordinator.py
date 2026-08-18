@@ -39,7 +39,7 @@ class ShineData:
 
     plant_info: dict[str, Any] = field(default_factory=dict)
     devices: list[DeviceKey] = field(default_factory=list)
-    realtime: dict[str, dict[str, Any]] = field(default_factory=dict)
+    realtime: dict[str, Any] = field(default_factory=dict)
     energy: dict[str, dict[str, Any]] = field(default_factory=dict)
     alarms: list[dict[str, Any]] = field(default_factory=list)
     fields: dict[int, list[dict[str, Any]]] = field(default_factory=dict)

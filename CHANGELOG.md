@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.4 — 2026-08-18
+
+### Bug fixes
+
+- Device-level realtime sensors were still `unknown` after 0.2.3 because
+  `queryDeviceRealLastData` actually returns a **list** of
+  `{title, unit, val, mapValue, mapType}` objects (not a dict keyed by field
+  id), and the client discarded non-dict payloads before the sensor layer
+  could read them. The client now passes the payload through untouched, and
+  field extraction matches items by their `title` against the schema `name`
+  (case-insensitive) as well as by field id.
+- Device `energy_today`/`energy_total` now fall back to the
+  `queryPlantDeviceDesignatedInformation` row, which is the only API source
+  for cumulative energy (the realtime payload does not carry it).
+- Device `output_power` is estimated as the sum of per-phase grid
+  `V × I` readings when the realtime payload has no explicit Output Power
+  item (verified: realtime reports grid phase pairs, no output power).
+- `docs/shinemonitor-api.md` §5.13 now documents the real response shape
+  with a captured example, plus the newer ksolare-tenant actions
+  (`queryKsolareDeviceChartField`, `queryKsolarePlantChartFieldsDat`).
+
 ## 0.2.3 — 2026-08-18
 
 ### Bug fixes

@@ -244,8 +244,12 @@ class ShineClient:
         sn: str,
         devaddr: int,
         date: str,
-    ) -> dict[str, Any]:
-        dat = await self._call(
+    ) -> Any:
+        """Return the raw payload — a list of ``{title, unit, val, mapValue}``
+        objects on most grid-tie inverters, or a dict keyed by field id on
+        some older devices. Never coerce to ``{}`` here; ``sensor.py``
+        normalizes both shapes."""
+        return await self._call(
             "queryDeviceRealLastData",
             devaddr=devaddr,
             pn=pn,
@@ -253,7 +257,6 @@ class ShineClient:
             sn=sn,
             date=date,
         )
-        return dat if isinstance(dat, dict) else {}
 
     async def query_plant_device_designated_information(
         self, plantid: int, devtype: int, parameter: str

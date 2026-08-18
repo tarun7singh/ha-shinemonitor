@@ -581,7 +581,37 @@ Full list captured for `devcode=632` (likely Kstar / Sofar-rebrand grid-tie):
 
 **Request params**: `pn`, `devcode`, `sn`, `devaddr`, `date=YYYY-MM-DD`.
 
-**Response**: an object whose keys match the `optional` ids from §5.12, each with a current `val` and `ts`. Returns `ERR_NO_RECORD` if the device is offline (`comStatus=0`). The user's inverter was offline at capture time, so a populated example could not be recorded — use the field schema above as the contract.
+**Response**: a **list** of `{title, unit, val, mapValue, mapType}` objects —
+fields are identified by their *title* (which matches the `name` from §5.12),
+not by `optional` id. Returns `ERR_NO_RECORD` if the device is offline (`comStatus=0`).
+
+Captured example (KSY0724HS08486, 2026-08-18 ~14:45 IST, inverter reporting
+near-zero production):
+
+```json
+{ "err": 0, "desc": "ERR_NONE", "dat": [
+  { "title": "PV3 voltage",    "unit": "V", "val": "0.0",   "mapValue": "PV3-Voltage", "mapType": "PV3" },
+  { "title": "Grid R current", "unit": "A", "val": "0.4",   "mapValue": "R-Electric",  "mapType": "R"   },
+  { "title": "Grid R voltage", "unit": "V", "val": "242.4", "mapValue": "R-Voltage",   "mapType": "R"   },
+  { "title": "PV2 current",    "unit": "A", "val": "0.0",   "mapValue": "PV2-Electric","mapType": "PV2" },
+  { "title": "PV1 voltage",    "unit": "V", "val": "335.3", "mapValue": "PV1-Voltage", "mapType": "PV1" },
+  { "title": "PV1 current",    "unit": "A", "val": "0.4",   "mapValue": "PV1-Electric", "mapType": "PV1" }
+] }
+```
+
+Notes:
+
+- The payload contains PV string and grid phase readings, but **no
+  `output_power` and no cumulative energy fields**. Live AC power must be
+  estimated as the sum of `V_phase × I_phase` over the grid phases present;
+  daily/lifetime energy comes from `queryPlantDeviceDesignatedInformation`
+  (§5.6) instead.
+- Some older devices return a dict keyed by `optional` id instead; both shapes
+  must be handled.
+- The newer ksolare-branded tenant also exposes `queryKsolareDeviceChartField`
+  (schema, `{id, name, unit}` objects) and `queryKsolarePlantChartFieldsDat`
+  (`{date: [{par, paramter: [{key, val}]}]}` 5-minute series) — the web UI
+  uses these instead of §5.12/§5.13.
 
 ### 5.14 `queryDeviceActiveOuputPowerOneDay24Hour`
 

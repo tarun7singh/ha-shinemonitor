@@ -174,8 +174,17 @@ class ShineDeviceFieldSensor(ShineEntity, SensorEntity):
         data = self.coordinator.data
         if data is None:
             return None
-        payload = data.realtime.get(self._device.sn) or {}
-        val = _extract_field_value(payload, self._field_id)
+        payload = data.realtime.get(self._device.sn)
+        val = _extract_field_value(payload, self._field_id, self._attr_name)
+        if val is None and self._field_id in ("energy_today", "energy_total"):
+            # The realtime payload does not carry cumulative energy on these
+            # devices; fall back to the designated-information row.
+            row = data.energy.get(self._device.sn) or {}
+            val = row.get(self._field_id)
+        if val is None and self._field_id == "output_power":
+            # No explicit Output Power item in the realtime payload; estimate
+            # AC output from the per-phase grid voltage × current readings.
+            val = _extract_ac_power(payload)
         return _coerce_number(val)
 
     @property
@@ -364,15 +373,34 @@ class ShinePlantCurrentPowerSensor(ShineEntity, SensorEntity):
         return attrs
 
 
-def _extract_field_value(payload: dict[str, Any], field_id: str) -> Any:
-    """``queryDeviceRealLastData`` returns values in a handful of shapes depending on device.
+def _extract_field_value(
+    payload: Any, field_id: str, field_name: str | None = None
+) -> Any:
+    """Extract one field from a ``queryDeviceRealLastData`` payload.
 
-    We try, in order:
-    1. ``payload[field_id]`` (flat dict).
-    2. ``payload[field_id]["val"]``.
-    3. ``payload["pars"][*]`` — a list of ``{id, val}`` pairs some devices use.
-    4. ``payload["dat"]`` as a list of ``{optional/id, val}`` objects.
+    The cloud returns one of two shapes depending on device/API version:
+
+    - A list of ``{title, unit, val, mapValue, mapType}`` objects (current
+      grid-tie inverters — e.g. ``{"title": "PV1 voltage", "val": "335.3"}``).
+      Fields are identified by *title*, not by id.
+    - A dict keyed by field id, or with ``pars``/``parameter``/``dat`` buckets
+      of ``{optional/id/key, val}`` pairs (older devices).
+
+    We match by field title (case-insensitive) first, then by field id.
     """
+    if field_name:
+        target = field_name.casefold()
+        items = payload if isinstance(payload, list) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title") or item.get("name")
+            if title is not None and str(title).casefold() == target:
+                return item.get("val")
+
+    if not isinstance(payload, dict):
+        return None
+
     if field_id in payload:
         v = payload[field_id]
         if isinstance(v, dict) and "val" in v:
@@ -388,7 +416,45 @@ def _extract_field_value(payload: dict[str, Any], field_id: str) -> Any:
                 ident = item.get("optional") or item.get("id") or item.get("key")
                 if ident == field_id:
                     return item.get("val")
+                if field_name:
+                    title = item.get("title") or item.get("name")
+                    if title is not None and str(title).casefold() == field_name.casefold():
+                        return item.get("val")
     return None
+
+
+def _extract_ac_power(payload: Any) -> Any:
+    """Estimate inverter AC output (W) from the per-phase grid readings.
+
+    ``queryDeviceRealLastData`` on grid-tie inverters reports
+    ``Grid R/S/T voltage`` and ``Grid R/S/T current`` pairs but no explicit
+    output power.  Sum ``V_phase × I_phase`` over the phases present.
+    """
+    if not isinstance(payload, list):
+        return None
+    volts: dict[str, float] = {}
+    amps: dict[str, float] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").casefold()
+        phase = None
+        for tag in ("r", "s", "t"):
+            if f"grid {tag} voltage" in title or f"grid {tag} current" in title:
+                phase = tag
+                break
+        if phase is None:
+            continue
+        try:
+            val = float(item.get("val"))
+        except (TypeError, ValueError):
+            continue
+        if "voltage" in title:
+            volts[phase] = val
+        elif "current" in title:
+            amps[phase] = val
+    power = sum(volts[p] * amps[p] for p in volts.keys() & amps.keys())
+    return power if power else None
 
 
 def _coerce_number(v: Any) -> Any:
